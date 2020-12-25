@@ -13,9 +13,9 @@
       DATABASES = {
           'default': {
               'ENGINE': 'django.db.backends.postgresql',
-              'NAME': 'ttsdb',
-              'USER': 'user01',
-              'PASSWORD': 'test1234',
+              'NAME': 'chatterdb',
+              'USER': 'chatter_user',
+              'PASSWORD': 'password',
               'HOST': '127.0.0.1', # apparently can also use 'localhost'
               'PORT': '5432', # default is 5432
           }
@@ -137,3 +137,22 @@
            path('', TemplateView.as_view(template_name='index.html')) # <-- added this
        ]
        ```
+
+### User Auth Notes
+1. Need to specify custom user before first migration
+   1. First don't forget to register the app
+2. In models, import `AbstractUser` from `django.contrib.auth.models`
+3. Make a `User` class that inherits from `AbstractUser`
+4. In settings, add `AUTH_USER_MODEL = '<app_name>.User` so it knows where to find this new user.
+5. Then, since we created a new model, run `python manage.py makemigrations <app_name>`, and then `python manage.py migrate`
+6. If you want it available in the admin panel, go to admin.py to register the User
+   ```
+   from django.contrib import admin
+   from .models import User
+
+   # Register your models here.
+   admin.site.register(User)
+   ```
+7. To access the model, can't do normal import. User `django.contrib.auth.get_user.model()`
+   1. in shell run `from django.contrib.auth import get_user_model`
+   2. `get_user_model().objects.all()` gets all users
