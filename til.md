@@ -57,9 +57,122 @@ INSTALLED_APPS = [
 ]
 ```
 
+## I did everything before this so far in a separate app called `authentication` and I'm going to try JWT instead of drf auth because it sounds like it's more full fledged. Which means ignor number 9 (remove that from apps)
+
+9. `pip install djangorestframework-simplejwt`
+10. update settings to add `rest_framework_simplejwt.authentication.JWTAuthentication` to thea authentication classes
+```
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES' : (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    )
+}
+```
+11. Make routes for `TokenObtainPairView` and `TokenRefreshView`:
+```
+# authentication/urls.py
+from django.urls import path
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+
+urlpatterns = [
+    path('token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+]
+
+# chatter/urls.py
+urlpatterns = [
+    ...
+    path('api/', include('authentication.urls')),
+]
+```
+12. Can test it with curl requests
+```
+# Get the token pair
+curl \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"username": "admin", "password": "password"}' \
+  http://localhost:8000/api/token/
+
+# refresh the token
+curl \
+  -X POST \
+  --headers "Content-Type: application/json" \
+  --data '{"refresh":"<Use the refresh token received from the token pair request>"}' \
+    http://127.0.0.1:8000/api/token/refresh/
+```
+13. settings for the jwt
+```
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=5),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=14),
+    'ROTATE_REFRESH_TOKENS': False,
+    # need to add `rest_framework_simplejwt.token_blacklist` if I flip this to true
+    'BLACKLIST_AFTER_ROTATION': False,
+    # turning to true will drastically increase the number of database queries
+    'UPDATE_LAST_LOGIN': False,
+
+    'ALGORITHM': 'HS256',
+    'SIGNING_KEY': SECRET_KEY, # from Django, although recommended to use another
+    # # don't need when using HMAC Signing (HS...)
+    # 'VERIFYING_KEY': None,
+    # # audience claim to be included in generated tokens and/or validated in decoded tokens
+    # 'AUDIENCE': None,
+    # # issuer claim ... above
+    # 'ISSUER': None,
+
+    'AUTH_HEADER_TYPES': ('JWT',), # default is 'Bearer'
+    'AUTH_HEADER_NAME': 'HTTP_AUTHORIZATION',
+    'USER_ID_FIELD': 'id',
+    'USER_ID_CLAIM': 'user_id', 
+
+    'AUTH_TOKEN_CLASSES': ('rest_framework_simplejwt.tokens.AccessToken',),
+    'TOKEN_TYPE_CLAIM': 'token_type',
+
+    # 'JTI_CLAIM': 'jti',
+
+    # 'SLIDING_TOKEN_REFRESH_EXP_CLAIM': 'refresh_exp',
+    # 'SLIDING_TOKEN_LIFETIME': timedelta(minutes=5),
+    # 'SLIDING_TOKEN_REFRESH_LIFETIME': timedelta(days=1),
+}
+```
+14. I created a protected view to test authentication
+```
+# authentication/views.py
+from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+
+class TestView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        content = {'Message': 'You are authenticated!'}
+        return Response(content)
+
+# authentication/urls.py
+urlpatterns = [
+    ...,
+    # TestView for auth
+    path('test/', TestView.as_view(), name='test_auth')
+]
+```
+  * Can either go to the url, or make a curl or postman request to `http://localhost:8000/api/test`, and will see that we don't get the response because we don't have credentials
+    1. Try the request without auth:
+      ![Unauthenticated TestView Request](til_docs/postman_unauthenticated_request.png)
+    2. Get the access token (pass in the username and password as json in the body tag), and store the access token as a variable (https://dev.to/loopdelicious/using-jwt-to-authenticate-and-authorize-requests-in-postman-3a5h):
+      ![Set Token As Variable](til_docs/postman_obtain_token_variable.png)
+    3. Try the request passing in the token, and voila!
+       ![Authenticated TestView Request](til_docs/postman_authenticated_request.png)
+15. OPTIONAL: thing is to create a custom claim so the JWT includes something in addition to user_id, such as `handle` in our case.
+  1. To do this, we need to create a custom serializer for it, a custom view, and update the urls
+    
+
+    
 
 
-10. I then created an admin user:
+
+1.  I then created an admin user:
    1. `python manage.py createsuperuser`, gave it a name, email, and password
       1. I can now see this user in the users table
    2. I can see the fields on the model if I go into the shell and import User and check the _meta fields:
@@ -72,10 +185,10 @@ INSTALLED_APPS = [
       # For just the names, I can use a list comp or map
       [f.name for f in User._meta.fields]
       ```
-11. Before I get carried away, I'll make sure I can see React. since I'm trying to figure out auth with relation to the frontend. Before any DRF stuff or whatever, let's do webpack, babel, and react. `npm init` to create your package.json file.
-12. `npm install --save-dev webpack webpack-cli  "webpack-bundle-tracker@<1" @babel/core babel-loader @babel/preset-env @babel/preset-react react react-dom`
+2.  Before I get carried away, I'll make sure I can see React. since I'm trying to figure out auth with relation to the frontend. Before any DRF stuff or whatever, let's do webpack, babel, and react. `npm init` to create your package.json file.
+3.  `npm install --save-dev webpack webpack-cli  "webpack-bundle-tracker@<1" @babel/core babel-loader @babel/preset-env @babel/preset-react react react-dom`
    3.  Something about webpack bundle tracker needed to be lower than 1. I'll have to check.
-13. create `webpack.config.js`
+4.  create `webpack.config.js`
    ```
    const path = require('path');
    const BundleTracker = require('webpack-bundle-tracker');
