@@ -32,7 +32,7 @@
   ```
 7. Point the `AUTH_MODEL_USER` to our new user in `settings.py` (or makemigrations will fail)
 ```
-AUTH_USER_MODEL = 'backend.User'
+AUTH_USER_MODEL = 'authentication.User'
 ```
 8. Register the user in the admin
 ```
@@ -49,18 +49,13 @@ admin.site.register(User, UserAdmin)
 python manage.py makemigrations
 python manage,py migrate
 ```
-9. Since I'm using drf's token auth, had to include authtoken as an app and migrate again:
-```
-INSTALLED_APPS = [
-  ...
-  'rest_framework.authtoken'
-]
-```
+
+9. Create superuser
 
 ## I did everything before this so far in a separate app called `authentication` and I'm going to try JWT instead of drf auth because it sounds like it's more full fledged. Which means ignor number 9 (remove that from apps)
 
-9. `pip install djangorestframework-simplejwt`
-10. update settings to add `rest_framework_simplejwt.authentication.JWTAuthentication` to thea authentication classes
+10. `pip install djangorestframework-simplejwt`
+12. update settings to add `rest_framework_simplejwt.authentication.JWTAuthentication` to thea authentication classes
 ```
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES' : (
@@ -144,6 +139,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 class TestView(APIView):
+    # we can take this out if we put DEFAULT_PERMISSION_CLASSES to include this in settings
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -164,14 +160,95 @@ urlpatterns = [
       ![Set Token As Variable](til_docs/postman_obtain_token_variable.png)
     3. Try the request passing in the token, and voila!
        ![Authenticated TestView Request](til_docs/postman_authenticated_request.png)
-15. OPTIONAL: thing is to create a custom claim so the JWT includes something in addition to user_id, such as `handle` in our case.
-  1. To do this, we need to create a custom serializer for it, a custom view, and update the urls
+15. OPTIONAL: create a custom claim so the JWT includes something in addition to user_id, such as `handle` in our case. To do this:
+  1. We make a subclass of the `TokenObtainPairSerializer` from `rest_framework_simplejwt.serializers`:
+    ```
+    # authentication/serializers.py
+    from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+
+    # A Custom Claim for JWT, so we can see the handle passed along with the token
+    class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+        @classmethod
+        def get_token(cls, user):
+            """
+            docstring
+            """
+            token = super(CustomTokenObtainPairSerializer, cls).get_token(user)
+
+            # Add custom claim
+            token['handle'] = user.handle
+            return token
+    ```
+  2. views
+    ```
+    from rest_framework.permissions import ..., AllowAny
+    from .serializers import CustomTokenObtainPairSerializer
+    from rest_framework_simplejwt.views import TokenObtainPairView
+
+    ...
+
+    class TokenObtainPairWithHandleView(TokenObtainPairView):
+        permission_classes = (AllowAny,) # only need this if DEFAULT_PER... is somethign like isAuthenticated
+        serializer_class = CustomTokenObtainPairSerializer
+    ```
+  3. new urls
+    ```
+    from django.urls import path
+    from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+    from .views import TestView, TokenObtainPairWithHandleView
+
+    urlpatterns = [
+        # path('token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+        # if we use the custom claim with the handle
+        path('token/', TokenObtainPairWithHandleView.as_view(), name='token_obtain_pair'),
+        path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+        # TestView for auth
+        path('test/', TestView.as_view(), name='test_auth')
+    ]
+    ```
     
+  * And then when I test the token on https://jwt.io, I see the claim includes the handle I added:
+    ![Custom Claim on jwt.io](til_docs/jwt_custom_claim_verification.png)
 
+16.  make the user serializer
+  * learned some things about modelSerializer, extra_kwargs, etc.
+```
+class UserSerializer(serializers.ModelSerializer):
+    # writing the attributes here will remove any defaults
+    email = serializers.EmailField(required=True)
+    handle = serializers.CharField(required=True)
+    password = serializers.CharField(min_length=8, write_only=True)
     
+    class Meta:
+        model = User # required
+        fields = ['email', 'handle', 'password'] # fields or exclude required
+
+        # # adding things to extra_kwargs will override overlap, but maintain existing defaults
+        # extra_kwargs = {
+        #     'password': {'write_only': True},
+        #     'handle': {'required': True},
+        #     'email': {'required': True},
+        # }
+    
+    def create(self, validated_data):
+        password = validated_data.pop('password') # pop this so we can hash it
+        instance = self.Meta.model(**validated_data)
+        if password is not None:
+            instance.set_password(password)
+        instance.save()
+        return instance
+```
+17. Create user view
+```
+class UserCreate(CreateAPIView):
+    permission_classes = (AllowAny,)
+    serializer_class = UserSerializer
+```
 
 
 
+## ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+## below this was from original attempt prior to JWT auth 
 1.  I then created an admin user:
    1. `python manage.py createsuperuser`, gave it a name, email, and password
       1. I can now see this user in the users table
